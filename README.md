@@ -231,6 +231,7 @@ To ensure the FastAPI server runs continuously in the background and restarts au
 - Set up a reverse proxy like **Nginx** or use **IIS** to handle SSL (HTTPS) traffic.
 - Ensure the `ALLOWED_IPS` list in your `.env` contains TradingView's webhook IP ranges to prevent unauthorized requests, and set a long, secure `WEBHOOK_SECRET`.
 
+
 ### 2. Simulation / Mock Deployment (Docker / Linux Cloud)
 If you do not require live MT5 execution (e.g., for backtesting, demoing, or running paper trading in mock simulation mode), you can deploy the system to any standard Linux server using Docker.
 

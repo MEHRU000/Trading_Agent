@@ -1,0 +1,21 @@
+version: "3.8"
+
+services:
+  trading-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: xauusd_trading_agent
+    restart: always
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      # Mount application logs directory to host
+      - ./logs:/app/logs
+      # Mount database file parent directory so trading.db is persistent
+      - ./data:/app/data
+    environment:
+      # Direct DB path mapping to mounting volume
+      - DATABASE_URL=sqlite:////app/data/trading.db

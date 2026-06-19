@@ -233,7 +233,7 @@ def get_performance_stats(db: Session, days: int = 365) -> Dict[str, Any]:
 
 # --- LIVE MT5 SYNCHRONIZATION SERVICES ---
 
-def sync_trades_from_mt5(db: Session, days: int = 365):
+def sync_trades_from_mt5(db: Session, days: int = 365, sync_history: bool = True):
     """
     Pulls historical deals from MT5 for the last N days,
     groups them by position_id, and synchronizes them into the local trades database.
@@ -244,128 +244,129 @@ def sync_trades_from_mt5(db: Session, days: int = 365):
     from app.utils.config import settings
 
     now = datetime.utcnow()
-    date_from = now - timedelta(days=days)
-    date_to = now + timedelta(days=1)  # Add 1 day buffer for broker terminal timezone differences
-    
     api = mt5_connector.api
     
-    # Retrieve history deals
-    if mt5_connector.is_mock:
-        deals = api.history_deals_get(date_from=date_from, date_to=date_to)
-    else:
-        if not api.terminal_info():
-            app_logger.warning("MT5 terminal is not connected. Skipping historical deals query.")
-            deals = []
-        else:
-            deals = api.history_deals_get(date_from, date_to)
+    # Retrieve history deals if history syncing is enabled
+    if sync_history:
+        date_from = now - timedelta(days=days)
+        date_to = now + timedelta(days=1)  # Add 1 day buffer for broker terminal timezone differences
         
-    if not deals:
-        err_msg = ""
-        try:
-            if hasattr(api, "last_error"):
-                err_msg = f" Error: {api.last_error()}"
-        except Exception:
-            pass
-        app_logger.warning(f"No historical deals retrieved from MT5.{err_msg}")
-    else:
-        # Group deals by position_id
-        deals_by_pos = {}
-        for deal in deals:
-            pos_id = getattr(deal, "position_id", None)
-            if pos_id is not None:
-                if pos_id not in deals_by_pos:
-                    deals_by_pos[pos_id] = []
-                deals_by_pos[pos_id].append(deal)
-                
-        # Group entries and exits
-        for pos_id, pos_deals in deals_by_pos.items():
-            entry_deals = [d for d in pos_deals if getattr(d, "entry", None) == 0]
-            exit_deals = [d for d in pos_deals if getattr(d, "entry", None) == 1]
+        if mt5_connector.is_mock:
+            deals = api.history_deals_get(date_from=date_from, date_to=date_to)
+        else:
+            if not api.terminal_info():
+                app_logger.warning("MT5 terminal is not connected. Skipping historical deals query.")
+                deals = []
+            else:
+                deals = api.history_deals_get(date_from, date_to)
             
-            # If there are exit deals, the position was at least partially closed
-            if exit_deals:
-                existing_trade = db.query(Trade).filter(Trade.ticket == pos_id).first()
-                
-                main_entry = entry_deals[0] if entry_deals else pos_deals[0]
-                main_exit = exit_deals[-1]  # Latest exit deal
-                
-                order_type = "BUY" if main_entry.type == 0 else "SELL"
-                
-                # Aggregate entry volume & price
-                total_entry_vol = sum(d.volume for d in entry_deals) if entry_deals else main_entry.volume
-                if entry_deals and total_entry_vol > 0:
-                    entry_price = sum(d.price * d.volume for d in entry_deals) / total_entry_vol
-                else:
-                    entry_price = main_entry.price
-                
-                # Aggregate exit volume & price
-                total_exit_vol = sum(d.volume for d in exit_deals)
-                if total_exit_vol > 0:
-                    exit_price = sum(d.price * d.volume for d in exit_deals) / total_exit_vol
-                else:
-                    exit_price = main_exit.price
+        if not deals:
+            err_msg = ""
+            try:
+                if hasattr(api, "last_error"):
+                    err_msg = f" Error: {api.last_error()}"
+            except Exception:
+                pass
+            app_logger.warning(f"No historical deals retrieved from MT5.{err_msg}")
+        else:
+            # Group deals by position_id
+            deals_by_pos = {}
+            for deal in deals:
+                pos_id = getattr(deal, "position_id", None)
+                if pos_id is not None:
+                    if pos_id not in deals_by_pos:
+                        deals_by_pos[pos_id] = []
+                    deals_by_pos[pos_id].append(deal)
                     
-                # Aggregate metrics over all deals in position
-                profit = sum(getattr(d, "profit", 0.0) for d in pos_deals)
-                swap = sum(getattr(d, "swap", 0.0) for d in pos_deals)
-                commission = sum(getattr(d, "commission", 0.0) for d in pos_deals)
+            # Group entries and exits
+            for pos_id, pos_deals in deals_by_pos.items():
+                entry_deals = [d for d in pos_deals if getattr(d, "entry", None) == 0]
+                exit_deals = [d for d in pos_deals if getattr(d, "entry", None) == 1]
                 
-                magic = getattr(main_entry, "magic", settings.MT5_MAGIC_NUMBER)
-                raw_comment = getattr(main_exit, "comment", "") or getattr(main_entry, "comment", "")
-                comment = raw_comment
-                if isinstance(raw_comment, str) and raw_comment:
-                    comment_lower = raw_comment.lower()
-                    if "sl" in comment_lower or "stop" in comment_lower:
-                        comment = "Stop Loss Hit 🔴"
-                    elif "tp" in comment_lower or "profit" in comment_lower:
-                        comment = "Take Profit Hit 🟢"
-                    elif "manual" in comment_lower or "close" in comment_lower:
-                        comment = "Manual Close 🔴"
-                
-                sl_p = getattr(main_entry, "sl", getattr(main_exit, "sl", 0.0))
-                tp_p = getattr(main_entry, "tp", getattr(main_exit, "tp", 0.0))
-                
-                if not comment or comment == raw_comment:
-                    is_sl = abs(exit_price - sl_p) < 0.02 if sl_p > 0 else False
-                    is_tp = abs(exit_price - tp_p) < 0.02 if tp_p > 0 else False
-                    if is_sl:
-                        comment = "Stop Loss Hit 🔴"
-                    elif is_tp:
-                        comment = "Take Profit Hit 🟢"
+                # If there are exit deals, the position was at least partially closed
+                if exit_deals:
+                    existing_trade = db.query(Trade).filter(Trade.ticket == pos_id).first()
+                    
+                    main_entry = entry_deals[0] if entry_deals else pos_deals[0]
+                    main_exit = exit_deals[-1]  # Latest exit deal
+                    
+                    order_type = "BUY" if main_entry.type == 0 else "SELL"
+                    
+                    # Aggregate entry volume & price
+                    total_entry_vol = sum(d.volume for d in entry_deals) if entry_deals else main_entry.volume
+                    if entry_deals and total_entry_vol > 0:
+                        entry_price = sum(d.price * d.volume for d in entry_deals) / total_entry_vol
                     else:
-                        comment = "Manual Close 🔴" if not comment else comment
-
-                created_at = datetime.utcfromtimestamp(main_entry.time)
-                closed_at = datetime.utcfromtimestamp(main_exit.time)
-                
-                trade_data = {
-                    "ticket": pos_id,
-                    "symbol": main_entry.symbol,
-                    "order_type": order_type,
-                    "volume": round(total_entry_vol, 2),
-                    "entry_price": round(entry_price, 2),
-                    "sl_price": sl_p,
-                    "tp_price": tp_p,
-                    "exit_price": round(exit_price, 2),
-                    "profit": round(profit, 2),
-                    "swap": round(swap, 2),
-                    "commission": round(commission, 2),
-                    "status": "CLOSED",
-                    "magic_number": magic,
-                    "comment": comment,
-                    "created_at": created_at,
-                    "closed_at": closed_at
-                }
-                
-                if existing_trade:
-                    for key, val in trade_data.items():
-                        setattr(existing_trade, key, val)
-                else:
-                    new_trade = Trade(**trade_data)
-                    db.add(new_trade)
+                        entry_price = main_entry.price
                     
-        db.commit()
-        app_logger.info(f"Synchronized closed trades from MT5. Total positions: {len(deals_by_pos)}")
+                    # Aggregate exit volume & price
+                    total_exit_vol = sum(d.volume for d in exit_deals)
+                    if total_exit_vol > 0:
+                        exit_price = sum(d.price * d.volume for d in exit_deals) / total_exit_vol
+                    else:
+                        exit_price = main_exit.price
+                        
+                    # Aggregate metrics over all deals in position
+                    profit = sum(getattr(d, "profit", 0.0) for d in pos_deals)
+                    swap = sum(getattr(d, "swap", 0.0) for d in pos_deals)
+                    commission = sum(getattr(d, "commission", 0.0) for d in pos_deals)
+                    
+                    magic = getattr(main_entry, "magic", settings.MT5_MAGIC_NUMBER)
+                    raw_comment = getattr(main_exit, "comment", "") or getattr(main_entry, "comment", "")
+                    comment = raw_comment
+                    if isinstance(raw_comment, str) and raw_comment:
+                        comment_lower = raw_comment.lower()
+                        if "sl" in comment_lower or "stop" in comment_lower:
+                            comment = "Stop Loss Hit 🔴"
+                        elif "tp" in comment_lower or "profit" in comment_lower:
+                            comment = "Take Profit Hit 🟢"
+                        elif "manual" in comment_lower or "close" in comment_lower:
+                            comment = "Manual Close 🔴"
+                    
+                    sl_p = getattr(main_entry, "sl", getattr(main_exit, "sl", 0.0))
+                    tp_p = getattr(main_entry, "tp", getattr(main_exit, "tp", 0.0))
+                    
+                    if not comment or comment == raw_comment:
+                        is_sl = abs(exit_price - sl_p) < 0.02 if sl_p > 0 else False
+                        is_tp = abs(exit_price - tp_p) < 0.02 if tp_p > 0 else False
+                        if is_sl:
+                            comment = "Stop Loss Hit 🔴"
+                        elif is_tp:
+                            comment = "Take Profit Hit 🟢"
+                        else:
+                            comment = "Manual Close 🔴" if not comment else comment
+
+                    created_at = datetime.utcfromtimestamp(main_entry.time)
+                    closed_at = datetime.utcfromtimestamp(main_exit.time)
+                    
+                    trade_data = {
+                        "ticket": pos_id,
+                        "symbol": main_entry.symbol,
+                        "order_type": order_type,
+                        "volume": round(total_entry_vol, 2),
+                        "entry_price": round(entry_price, 2),
+                        "sl_price": sl_p,
+                        "tp_price": tp_p,
+                        "exit_price": round(exit_price, 2),
+                        "profit": round(profit, 2),
+                        "swap": round(swap, 2),
+                        "commission": round(commission, 2),
+                        "status": "CLOSED",
+                        "magic_number": magic,
+                        "comment": comment,
+                        "created_at": created_at,
+                        "closed_at": closed_at
+                    }
+                    
+                    if existing_trade:
+                        for key, val in trade_data.items():
+                            setattr(existing_trade, key, val)
+                    else:
+                        new_trade = Trade(**trade_data)
+                        db.add(new_trade)
+                        
+            db.commit()
+            app_logger.info(f"Synchronized closed trades from MT5. Total positions: {len(deals_by_pos)}")
 
     # Retrieve current active open positions
     try:

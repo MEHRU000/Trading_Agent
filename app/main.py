@@ -57,6 +57,7 @@ def is_authenticated(session_id: Optional[str]) -> bool:
 
 # Background tasks storage
 background_tasks = set()
+_last_live_state_sync_time = 0.0
 
 
 async def trailing_stop_loop():
@@ -691,16 +692,23 @@ def reconnect_broker(db: Session = Depends(get_db), session_id: Optional[str] = 
 @app.get("/api/v1/live-state")
 async def get_live_state(db: Session = Depends(get_db), force_refresh: bool = False, session_id: Optional[str] = Cookie(None)):
     """
-    Returns live account parameters, active open trades, last tick pricing,
+    Returns live account parameters, active open trades, pending trades, last tick pricing,
     and technical stats to support client-side real-time rendering.
     """
     if not is_authenticated(session_id):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
     
-    # 1. Fetch latest broker state
+    # 1. Fetch latest broker state with throttling
+    global _last_live_state_sync_time
+    import time
+    now_time = time.time()
     try:
         from app.database.trade_history import sync_trades_from_mt5
-        sync_trades_from_mt5(db)
+        if force_refresh or (now_time - _last_live_state_sync_time > 5.0):
+            sync_trades_from_mt5(db, days=30, sync_history=True)
+            _last_live_state_sync_time = now_time
+        else:
+            sync_trades_from_mt5(db, sync_history=False)
     except Exception as e:
         app_logger.error(f"Failed to sync MT5 on live-state update: {e}")
 
@@ -747,6 +755,36 @@ async def get_live_state(db: Session = Depends(get_db), force_refresh: bool = Fa
             "created_at": t.created_at.isoformat() + "Z" if t.created_at else None
         })
         
+    # 2b. Query Pending Orders
+    pending_trades_list = []
+    try:
+        api = mt5_connector.api
+        if mt5_connector.is_mock or api.terminal_info():
+            raw_orders = api.orders_get()
+            if raw_orders:
+                for order in raw_orders:
+                    o_type = getattr(order, "type", 2)
+                    o_type_label = "BUY LIMIT"
+                    if o_type == 2: o_type_label = "BUY LIMIT"
+                    elif o_type == 3: o_type_label = "SELL LIMIT"
+                    elif o_type == 4: o_type_label = "BUY STOP"
+                    elif o_type == 5: o_type_label = "SELL STOP"
+                    elif o_type == 6: o_type_label = "BUY STOP LIMIT"
+                    elif o_type == 7: o_type_label = "SELL STOP LIMIT"
+                    
+                    pending_trades_list.append({
+                        "ticket": getattr(order, "ticket", None),
+                        "symbol": getattr(order, "symbol", "XAUUSD"),
+                        "order_type": o_type_label,
+                        "volume": getattr(order, "volume_initial", 0.0),
+                        "entry_price": getattr(order, "price_open", 0.0),
+                        "sl_price": getattr(order, "sl", 0.0),
+                        "tp_price": getattr(order, "tp", 0.0),
+                        "comment": getattr(order, "comment", "")
+                    })
+    except Exception as err:
+        app_logger.error(f"Failed to query pending orders: {err}")
+
     # 3. Query last signal
     last_signal = db.query(Signal).order_by(Signal.created_at.desc()).first()
     last_signal_data = None
@@ -800,6 +838,64 @@ async def get_live_state(db: Session = Depends(get_db), force_refresh: bool = Fa
     latest_snap = get_latest_snapshot(db)
     daily_dd = latest_snap.daily_drawdown if latest_snap else 0.0
     weekly_dd = latest_snap.weekly_drawdown if latest_snap else 0.0
+
+    # 7. Fetch recent signals and closed trades
+    recent_signals = db.query(Signal).order_by(Signal.created_at.desc()).limit(10).all()
+    recent_trades = db.query(Trade).order_by(Trade.created_at.desc()).limit(10).all()
+    all_closed_trades = db.query(Trade).filter(Trade.status == "CLOSED").order_by(Trade.closed_at.desc()).limit(20).all()
+    
+    recent_signals_list = []
+    for s in recent_signals:
+        recent_signals_list.append({
+            "created_at": s.created_at.isoformat() + "Z" if s.created_at else None,
+            "symbol": s.symbol,
+            "direction": s.direction,
+            "rsi": s.rsi,
+            "ema_20": s.ema_20,
+            "ema_50": s.ema_50,
+            "atr": s.atr,
+            "volume": s.volume,
+            "market_structure": s.market_structure,
+            "raw_payload": s.raw_payload,
+            "action_taken": s.action_taken,
+            "reason": s.reason,
+            "price": s.price
+        })
+        
+    recent_trades_list = []
+    for tr in recent_trades:
+        recent_trades_list.append({
+            "ticket": tr.ticket,
+            "symbol": tr.symbol,
+            "order_type": tr.order_type,
+            "volume": tr.volume,
+            "entry_price": tr.entry_price,
+            "sl_price": tr.sl_price,
+            "tp_price": tr.tp_price,
+            "exit_price": tr.exit_price,
+            "profit": tr.profit,
+            "status": tr.status,
+            "comment": tr.comment,
+            "created_at": tr.created_at.isoformat() + "Z" if tr.created_at else None,
+            "closed_at": tr.closed_at.isoformat() + "Z" if tr.closed_at else None
+        })
+
+    closed_trades_list = []
+    for tr in all_closed_trades:
+        closed_trades_list.append({
+            "ticket": tr.ticket,
+            "symbol": tr.symbol,
+            "order_type": tr.order_type,
+            "volume": tr.volume,
+            "entry_price": tr.entry_price,
+            "exit_price": tr.exit_price,
+            "profit": tr.profit,
+            "swap": tr.swap,
+            "commission": tr.commission,
+            "comment": tr.comment,
+            "created_at": tr.created_at.isoformat() + "Z" if tr.created_at else None,
+            "closed_at": tr.closed_at.isoformat() + "Z" if tr.closed_at else None
+        })
     
     return {
         "status": "SUCCESS",
@@ -811,6 +907,10 @@ async def get_live_state(db: Session = Depends(get_db), force_refresh: bool = Fa
         "free_margin": free_margin,
         "margin_level": margin_level,
         "open_trades": open_trades_list,
+        "pending_trades": pending_trades_list,
+        "recent_signals": recent_signals_list,
+        "recent_trades": recent_trades_list,
+        "all_closed_trades": closed_trades_list,
         "last_signal": last_signal_data,
         "tick": {
             "symbol": symbol,
