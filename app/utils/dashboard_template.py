@@ -19,7 +19,7 @@ def render_login_page(error: Optional[str] = None) -> str:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Secure administrative login for AUREON Automated Gold Trading Bot.">
-    <title>Login | AUREON OS</title>
+    <title>Login | AUREON</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700&family=Sora:wght@600;800&display=swap" rel="stylesheet">
@@ -821,7 +821,7 @@ def render_dashboard(data: dict) -> str:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Institutional Automated Trading OS Dashboard.">
-    <title>{data.get('project_name', 'XAUUSD AI Trading OS')} | Command Center</title>
+    <title>{data.get('project_name', 'AUREON')} | Command Center</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&family=Sora:wght@600;800&display=swap" rel="stylesheet">
@@ -1643,12 +1643,12 @@ def render_dashboard(data: dict) -> str:
 <body>
     <!-- Sidebar Navigation -->
     <aside>
-        <div class="sidebar-header" style="text-align: center;">
+        <div class="sidebar-header" style="text-align: center; padding: 1.25rem 0.5rem 0.75rem 0.5rem;">
             <div style="display: flex; flex-direction: column; align-items: center; gap: 0.4rem;">
-                <img src="/logo_icon.png" style="height: 64px; width: auto; object-fit: contain;" />
-                <div style="display: flex; align-items: center; justify-content: center; gap: 0.25rem; margin-top: 0.15rem;">
-                    <img src="/logo_word.png" style="height: 18px; width: auto; object-fit: contain;" />
-                    <span style="font-family: \'Sora\', sans-serif; font-size: 0.95rem; font-weight: 600; color: var(--accent-gold); letter-spacing: 0.05em; line-height: 1; transform: translateY(-1px);">OS</span>
+                <img src="/logo_icon.png" style="height: 60px; width: auto; object-fit: contain;" />
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 0.15rem; width: 100%;">
+                    <img src="/logo_word.png" style="height: 16px; width: auto; object-fit: contain;" />
+                    <div style="font-family: \'Sora\', sans-serif; font-size: 0.52rem; color: #E2E8F0; opacity: 0.8; letter-spacing: 0.04em; margin-top: 0.25rem; line-height: 1.2; text-align: center; white-space: nowrap;">The Intelligent Trading Operating System</div>
                 </div>
             </div>
             <div class="live-status-container" style="justify-content: center; margin-top: 0.5rem; display: flex; align-items: center; gap: 0.35rem;">
