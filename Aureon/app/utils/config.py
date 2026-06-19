@@ -76,8 +76,6 @@ class Settings(BaseSettings):
     MAX_WEEKLY_DRAWDOWN_PCT: float = Field(default=0.10, description="Maximum allowable weekly drawdown (e.g. 0.10 = 10%)")
     MAX_SPREAD_POINTS: int = Field(default=50, description="Maximum allowed spread in points for Gold (e.g. 50 points = 5.0 pips / $0.50)")
     MAX_SLIPPAGE_POINTS: int = Field(default=30, description="Maximum allowable slippage in points for order execution")
-    CONTRACT_MULTIPLIER: float = Field(default=100.0, description="Contract multiplier for profit calculation (e.g., 100 for XAUUSD)")
-
     
     # Session Filtering (UTC Hours)
     SESSION_START_HOUR: int = Field(default=7, description="UTC Hour to start trading (e.g. London opening prep)")
@@ -90,7 +88,7 @@ class Settings(BaseSettings):
     AWS_ACCESS_KEY_ID: Optional[str] = Field(default=None, description="AWS Access Key for Bedrock")
     AWS_SECRET_ACCESS_KEY: Optional[str] = Field(default=None, description="AWS Secret Key for Bedrock")
     AWS_REGION: str = Field(default="us-east-1", description="AWS Bedrock Region")
-    # AI Validation Settings
+    
     AI_VALIDATION_ENABLED: bool = Field(default=False, description="Enable/Disable Claude AI trade validation")
     AI_PROVIDER: str = Field(default="anthropic", description="AI Provider: 'anthropic' or 'bedrock'")
     CLAUDE_MODEL_ID: str = Field(
@@ -98,13 +96,7 @@ class Settings(BaseSettings):
         description="Model identifier for Anthropic Claude validation"
     )
     MIN_CONFIDENCE_SCORE: float = Field(default=0.70, description="Minimum confidence score needed from AI (0.0 to 1.0)")
-    # AI Prediction Settings
-    AI_PREDICTION_MODEL: str = Field(default="claude", description="Model to use for price prediction ('claude', 'openai', 'gemini')")
-    AI_PREDICTION_CONFIDENCE_THRESHOLD: float = Field(default=0.85, description="Confidence threshold required to accept AI prediction")
-    AI_OVERRIDES_ORDER_PARAMS: bool = Field(default=False, description="Allow AI to override SL/TP parameters when confidence is high")
-    AI_ORDER_EXECUTION_ENABLED: bool = Field(default=False, description="Allow AI to place orders automatically")
-    DEFAULT_TRADE_VOLUME: float = Field(default=0.01, description="Default lot size for AI‑driven orders")
-    
+
     # Telegram Notification Settings
     TELEGRAM_BOT_TOKEN: Optional[str] = Field(default=None, description="Telegram Bot API Token")
     TELEGRAM_CHAT_ID: Optional[str] = Field(default=None, description="Telegram Channel/Chat ID")
